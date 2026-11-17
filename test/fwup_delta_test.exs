@@ -209,6 +209,39 @@ defmodule FwupDeltaTest do
       assert compare_images?({img_b, offset_a, size_a}, {img_a, offset_a + size_a, size_a})
     end
 
+    # xdelta3 decompresses gzip input on its own unless told not to; fwup's decoder
+    # does not recompress, so the patched file came out at its unpacked size.
+    for {name, gzip_source?} <- [{"plain to gzip", false}, {"gzip to gzip", true}] do
+      @tag :tmp_dir
+      test "generate valid delta for a gzip-compressed fat resource, #{name}", %{tmp_dir: dir} do
+        fwup_conf_path = Path.join(dir, "fwup.conf")
+        File.write!(fwup_conf_path, @fat)
+
+        plain_1 = for _ <- 1..200, into: <<>>, do: random_bytes(36) <> :binary.copy("kernel", 50)
+        plain_2 = plain_1 <> for(_ <- 1..20, into: <<>>, do: random_bytes(36))
+
+        data_1 = if unquote(gzip_source?), do: :zlib.gzip(plain_1), else: plain_1
+        data_2 = :zlib.gzip(plain_2)
+
+        data_path_1 = Path.join(dir, "data-1")
+        File.write!(data_path_1, data_1)
+        data_path_2 = Path.join(dir, "data-2")
+        File.write!(data_path_2, data_2)
+
+        fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
+        fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
+
+        {:ok, %{filepath: delta_path}} =
+          FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
+
+        img_a = complete!(fw_a, Path.join(dir, "a.img"))
+        upgrade!(delta_path, img_a)
+
+        mcopy(img_a, 4096 + 154_476, ["second"], Path.join(dir, "upgraded"))
+        assert File.read!(Path.join([dir, "upgraded", "second"])) == data_2
+      end
+    end
+
     @tag :tmp_dir
     test "generate valid delta for raw fwup config", %{tmp_dir: dir} do
       fwup_conf_path = Path.join(dir, "fwup.conf")

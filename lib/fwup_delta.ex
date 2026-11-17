@@ -39,6 +39,8 @@ defmodule FwupDelta do
     end
   end
 
+  # xdelta3 runs with -D: without it xdelta3 decompresses gzip input and encodes the
+  # unpacked bytes, and fwup's decoder writes the resource at its unpacked size.
   @spec do_generate(
           source_path :: String.t(),
           target_path :: String.t(),
@@ -94,6 +96,7 @@ defmodule FwupDelta do
                       args = [
                         "-A",
                         "-S",
+                        "-D",
                         "-f",
                         "-s",
                         source_filepath,
